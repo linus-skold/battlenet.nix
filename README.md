@@ -33,8 +33,9 @@ Native catalogs are initialized separately as `games/PRODUCT.mac.nix`;
 only complete, reconstructed and hashed catalogs export a Darwin package.
 The updater discovers macOS distributions for Warcraft III (`w3`), StarCraft II
 (`s2`), StarCraft (`s1`), Heroes (`hero`), Hearthstone (`hsb`), Diablo III (`d3`)
-and the three WoW products. Initial catalogs and additional languages may still
-be pending. Diablo II Resurrected, Diablo IV and Overwatch are excluded because
+and the three original WoW products. Initial catalogs and additional languages
+may still be pending. WoW: Forever and TBC Anniversary are tracked
+Windows-only for now. Diablo II Resurrected, Diablo IV and Overwatch are excluded because
 no native macOS game payload was found in their selected manifests.
 
 An Intel-only macOS client needs [Rosetta](https://support.apple.com/en-gb/102527)
@@ -256,6 +257,8 @@ available to the maintenance pipeline.
 | `wow` | World of Warcraft retail |
 | `wow_classic` | World of Warcraft progression classic |
 | `wow_classic_era` | World of Warcraft Classic Era |
+| `wow_anniversary` | World of Warcraft: Burning Crusade Classic Anniversary |
+| `wowf` | World of Warcraft: Forever |
 | `d3` | Diablo III |
 | `osi` | Diablo II: Resurrected |
 | `fenris` | Diablo IV |
