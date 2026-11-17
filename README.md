@@ -403,6 +403,29 @@ payload downloads, then writes the game catalog. No installation directory or
 installation NAR hash is needed. It refuses to overwrite an already
 initialized product. Publishing the recovered catalog remains a separate step.
 
+Most products assemble through `default.nix`'s `mkInstallation`: one
+fixed-output derivation per CASC object, which lets Nix dedupe/reuse identical
+objects across versions, languages and products, and resume partial downloads.
+That stops scaling once a product's object count climbs into the hundreds of
+thousands: a `nixos-rebuild` then spends hours just checking substituters for
+individual objects before any actual fetch or build starts. For a product that
+large, switch it to `mkBulkInstallation` instead: a single derivation that
+streams and verifies every object directly (the same code path CI already uses
+for large jobs), pinned by one recursive NAR hash instead of one hash per
+object. This trades away per-object reuse and resumable fetches for a single
+substituter check, so only use it for catalogs that actually need it:
+
+```sh
+nix develop .#ci --command nu --no-config-file -c \
+  'use ./update.nu bulkify; bulkify games/wowf.nix'
+```
+
+This assembles the complete installation once, here, to compute the pinned
+hash every consumer will then reuse; it refuses to run on an incomplete
+installation or one that is already bulk. Publishing the result remains a
+separate step (the usual catalog compaction applies if the rewritten record
+exceeds GitHub's per-file size limit).
+
 User installations fetch each encoded CASC object through its own fixed-output
 Nix derivation, named by EKey and pinned by SHA256. Complete installations use
 these objects plus pinned configuration files and CDN indexes as local inputs;

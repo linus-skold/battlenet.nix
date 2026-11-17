@@ -157,6 +157,46 @@ let
         --cache ${cache} --output "$TMPDIR/storage"
       mv "$TMPDIR/storage" "$out"
     '';
+  # Alternative to mkInstallation for catalogs whose object count makes a
+  # one-fixed-output-derivation-per-object graph impractical to substitute
+  # (hundreds of thousands to millions of narinfo lookups). Instead of
+  # mkObjectCache's per-object derivations, a single derivation streams and
+  # verifies every object directly (storage.materialize_installation's
+  # network-fetching path, the same one CI already uses for large jobs) and
+  # the whole assembled tree is pinned by one recursive NAR hash. This trades
+  # away cross-version/cross-product object reuse and resumable per-object
+  # fetches for a single substituter check instead of one per object; use it
+  # only for catalogs update.nu has marked `bulk = true` with a pinned hash.
+  mkBulkInstallation = { storageLockFile ? null, storageLock ? null, hash }:
+    let
+      lock = if storageLock != null then storageLock else builtins.fromJSON (builtins.readFile storageLockFile);
+      # Hundreds of thousands of objects as one env var can exceed ARG_MAX
+      # ("Argument list too long"); pass the lock as a store path instead,
+      # same as mkInstallation/mkManifests do for their lock files.
+      lockFile = if storageLockFile != null then storageLockFile
+        else builtins.toFile "battlenet-${lock.release.product}-storage.json" (builtins.toJSON lock);
+    in assert lock.completeInstallation && lock.storageFormat == "casc-v7";
+    assert lib.assertMsg (hash != null) "Bulk installations require a pinned recursive installation hash.";
+    builtins.derivation {
+      name = "battlenet-${lock.release.product}-${lock.release.buildId}-installation";
+      system = python3.system;
+      builder = "${python3}/bin/python3";
+      args = [ "-c" ''
+        import json, os, sys
+        sys.path.insert(0, os.environ["backend"])
+        import storage
+        with open(os.environ["lockFile"]) as f:
+            lock = json.load(f)
+        storage.materialize_installation(lock, os.environ["out"])
+      '' ];
+      backend = source;
+      inherit lockFile;
+      outputHashMode = "recursive";
+      outputHashAlgo = "sha256";
+      outputHash = hash;
+      SSL_CERT_FILE = "${cacert}/etc/ssl/certs/ca-bundle.crt";
+      impureEnvVars = [ "http_proxy" "https_proxy" "all_proxy" "no_proxy" "HTTP_PROXY" "HTTPS_PROXY" "ALL_PROXY" "NO_PROXY" ];
+    };
   mkSnapshot = { src, lockFile }:
     let lock = readLock lockFile;
     in runCommand "battlenet-${lock.product}-${lock.buildId}-content" {
@@ -174,8 +214,11 @@ let
       release = readLock settings.lockFile;
       storageRelease = if storageLockFile == null then null else
         (if storageLock != null then storageLock else builtins.fromJSON (builtins.readFile storageLockFile)).release;
+      storageData = if storageLock != null then storageLock else builtins.fromJSON (builtins.readFile storageLockFile);
       selectedContent = if content != null then content else
-        mkInstallation { inherit storageLockFile storageLock hash; };
+        if storageData.bulk or false
+        then mkBulkInstallation { inherit storageLockFile storageLock hash; }
+        else mkInstallation { inherit storageLockFile storageLock hash; };
     in assert lib.assertMsg (storageRelease == null ||
       (release.product == storageRelease.product &&
        release.buildConfig.key == storageRelease.buildConfig.key &&
@@ -318,5 +361,5 @@ let
       '';
     });
 in {
-  inherit runtime readLock mkMetadata mkManifests mkPlan mkFile mkEncodedObject mkStorage mkInstallation mkSnapshot mkGame mkConfiguredGame mkCatalogGame mkGames;
+  inherit runtime readLock mkMetadata mkManifests mkPlan mkFile mkEncodedObject mkStorage mkInstallation mkBulkInstallation mkSnapshot mkGame mkConfiguredGame mkCatalogGame mkGames;
 }

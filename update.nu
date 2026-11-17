@@ -230,6 +230,40 @@ def write-verified [path: string, data: record] {
   if $roundtrip != $data { error make {msg: 'Generated Nix data differs from verified records'} }
 }
 
+# Switch an already-complete catalog from one-fixed-output-derivation-per-object
+# (default.nix's mkInstallation) to a single pinned-hash derivation that streams
+# and verifies every object directly (mkBulkInstallation). Needed when a
+# product's object count makes per-object substituter checks impractical
+# (hundreds of thousands to millions of narinfo lookups) — see issue #6.
+# This assembles the full installation once, here, to compute the recursive
+# NAR hash every consumer will then pin; it trades away mkInstallation's
+# cross-version/cross-product object reuse and resumable per-object fetches,
+# so only use it for catalogs that actually need it.
+export def bulkify [path: string] {
+  let current = (exec ['nix' 'eval' '--json' '--file' ($path | path expand)] | from json)
+  let storage = ($current | get -o installation.storage)
+  if $storage == null or not ($storage | get -o completeInstallation | default false) {
+    error make {msg: 'bulkify requires an already-complete installation'}
+  }
+  if ($storage | get -o bulk | default false) {
+    error make {msg: 'Catalog is already bulk; nothing to do'}
+  }
+  let work = (exec ['mktemp' '-d'] | str trim)
+  try {
+    let storage_file = ($work | path join storage.json)
+    $storage | to json --raw | save --force --raw $storage_file
+    let tree = ($work | path join tree)
+    backend materialize-installation $storage_file '--output' $tree
+    let hash = (exec ['nix' 'hash' 'path' $tree] | str trim)
+    let updated = ($current | upsert installation.storage.bulk true | upsert installation.hash $hash)
+    write-verified $path $updated
+    rm --recursive $work
+  } catch {|err|
+    rm --recursive --force $work
+    error make {msg: $err.msg}
+  }
+}
+
 # Recover an interrupted first installation from its verified native checkpoint.
 export def finish [checkpoint: string, --directory: string = 'games'] {
   let draft = (exec ['nix' 'eval' '--json' '--file' ($checkpoint | path expand) '--apply'
