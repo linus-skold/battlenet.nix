@@ -19,3 +19,4 @@ jobs:
       - run: nix develop .#ci --command python3 -m unittest discover -s tests -v
       - run: nix develop .#ci --command nu --no-config-file -c 'use ./update.nu validate; validate'
       - run: nix develop .#ci --command nu --no-config-file update.nu --help
+      - run: nix develop .#ci --command nix eval --impure --expr 'import ./tests/module-eval.nix'

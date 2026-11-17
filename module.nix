@@ -3,7 +3,11 @@ let
   inherit (lib) mkEnableOption mkOption types;
   cfg = config.programs.battlenet;
   api = pkgs.battlenet;
-  catalog = import ./profiles.nix { inherit lib; system = pkgs.stdenv.hostPlatform.system; };
+  # Must not force `pkgs`: declaring options.programs.battlenet.games runs before
+  # the `pkgs` module argument (itself derived from config) can be resolved, and
+  # doing so deadlocks the whole config in infinite recursion. nixpkgs.hostPlatform
+  # is set directly, independent of the `pkgs` fixpoint, so it is safe here.
+  catalog = import ./profiles.nix { inherit lib; system = config.nixpkgs.hostPlatform.system; };
 in {
   options.programs.battlenet = {
     enable = mkEnableOption "declarative Battle.net games";
@@ -48,14 +52,16 @@ in {
       }));
     };
   };
-  config = lib.mkIf cfg.enable ({
+  # Linux-only options (e.g. boot.kernel.sysctl) live in module-linux.nix,
+  # imported only by the NixOS flake output: this module is shared with
+  # darwinModules.default, and a runtime isLinux check here would need to
+  # inspect this attrset's shape during module merging even while disabled,
+  # forcing `pkgs`/`config` before they can be resolved (infinite recursion).
+  config = lib.mkIf cfg.enable {
     nixpkgs.overlays = [ (import ./overlay.nix) ];
     environment.systemPackages = lib.attrValues (api.mkGames (
       lib.mapAttrs (_: game: builtins.removeAttrs game [ "enable" ])
         (lib.filterAttrs (_: game: game.enable) cfg.games)
     ));
-  } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-    # Per-object inputs can exceed Linux's default sandbox mount limit.
-    boot.kernel.sysctl."fs.mount-max" = lib.mkDefault 2000000;
-  });
+  };
 }

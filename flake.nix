@@ -21,7 +21,7 @@
         in api.mkGames gameSettings;
     in {
       overlays.default = import ./overlay.nix;
-      nixosModules.default = import ./module.nix;
+      nixosModules.default = { imports = [ ./module.nix ./module-linux.nix ]; };
       darwinModules.default = import ./module.nix;
       lib.mkGames = { pkgs, games }: (pkgs.callPackage ./default.nix {}).mkGames games;
       packages = forSystems packagesFor;
